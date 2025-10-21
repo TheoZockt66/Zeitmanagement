@@ -9,7 +9,7 @@ import Providers from "./providers";
 
 export const metadata: Metadata = {
   title: "Zeitmanagement",
-  description: "Zeiterfassung fÃ¼r Studium, Freizeit und persÃ¶nliche Projekte",
+  description: "Zeiterfassung für Studium, Freizeit und persönliche Projekte",
   robots: {
     index: false,
   },

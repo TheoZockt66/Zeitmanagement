@@ -10,11 +10,23 @@ function resolveStatus(error: unknown): number {
   return 500;
 }
 
-export async function PATCH(request: Request, { params }: { params: { id: string } }) {
+type RouteContext = { params: { id: string } } | Promise<{ params: { id: string } }>;
+
+function isPromise<T>(value: unknown): value is Promise<T> {
+  return typeof value === "object" && value !== null && "then" in value;
+}
+
+async function getParamsId(context: RouteContext): Promise<string> {
+  const resolved = isPromise(context) ? await context : context;
+  return resolved.params.id;
+}
+
+export async function PATCH(request: Request, context: RouteContext) {
   try {
     const payload = await request.json();
     const service = await TimeTrackingService.fromRequest();
-    const updatedModule = await service.updateModule(params.id, payload);
+    const id = await getParamsId(context);
+    const updatedModule = await service.updateModule(id, payload);
     return NextResponse.json({ data: updatedModule });
   } catch (error) {
     console.error("[Zeitmanagement] PATCH /api/zeit/modules/[id] failed", error);
@@ -24,10 +36,11 @@ export async function PATCH(request: Request, { params }: { params: { id: string
   }
 }
 
-export async function DELETE(_request: Request, { params }: { params: { id: string } }) {
+export async function DELETE(_request: Request, context: RouteContext) {
   try {
     const service = await TimeTrackingService.fromRequest();
-    await service.deleteModule(params.id);
+    const id = await getParamsId(context);
+    await service.deleteModule(id);
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("[Zeitmanagement] DELETE /api/zeit/modules/[id] failed", error);
