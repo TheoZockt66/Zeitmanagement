@@ -10,15 +10,11 @@ function resolveStatus(error: unknown): number {
   return 500;
 }
 
-type RouteContext = { params: { id: string } } | Promise<{ params: { id: string } }>;
-
-function isPromise<T>(value: unknown): value is Promise<T> {
-  return typeof value === "object" && value !== null && "then" in value;
-}
+type RouteContext = { params: Promise<{ id: string }> };
 
 async function getParamsId(context: RouteContext): Promise<string> {
-  const resolved = isPromise(context) ? await context : context;
-  return resolved.params.id;
+  const params = await context.params;
+  return params.id;
 }
 
 export async function PATCH(request: Request, context: RouteContext) {
