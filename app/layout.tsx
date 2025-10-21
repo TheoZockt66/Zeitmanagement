@@ -9,7 +9,7 @@ import Providers from "./providers";
 
 export const metadata: Metadata = {
   title: "Zeitmanagement",
-  description: "Zeiterfassung für Studium, Freizeit und persönliche Projekte",
+  description: "Zeiterfassung fÃ¼r Studium, Freizeit und persÃ¶nliche Projekte",
   robots: {
     index: false,
   },
@@ -49,4 +49,3 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     </html>
   );
 }
-
