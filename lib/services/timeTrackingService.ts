@@ -150,29 +150,31 @@ export class TimeTrackingService {
   }
 
   async fetchState(): Promise<ZeitManagementState> {
-    const { data, error } = await this.supabase.rpc<ZeitFullStatePayload>(ZEIT_RPCS.GET_FULL_STATE);
+    const { data, error } = await this.supabase.rpc(ZEIT_RPCS.GET_FULL_STATE);
     if (error) {
       throw new Error(`Zeitdaten konnten nicht geladen werden: ${error.message}`);
     }
 
-    const profile = data?.profile ? mapProfileRow(data.profile) : null;
-    const folders = (data?.folders ?? []).map(mapFolderRow);
-    const modules = (data?.modules ?? []).map(mapModuleRow);
-    const entries = (data?.entries ?? []).map(mapEntryRow);
+    const payload = (data as ZeitFullStatePayload | null) ?? null;
+
+    const profile = payload?.profile ? mapProfileRow(payload.profile) : null;
+    const folders = (payload?.folders ?? []).map(mapFolderRow);
+    const modules = (payload?.modules ?? []).map(mapModuleRow);
+    const entries = (payload?.entries ?? []).map(mapEntryRow);
 
     return { profile, folders, modules, entries };
   }
 
   async fetchModuleStats(): Promise<ZeitModuleStatsRow[]> {
     const { data, error } = await this.supabase
-      .from<ZeitModuleStatsRow>(ZEIT_VIEWS.MODULE_STATS)
+      .from(ZEIT_VIEWS.MODULE_STATS)
       .select("*")
       .eq("user_id", this.user.id);
 
     if (error) {
       throw new Error(`Modulstatistiken konnten nicht geladen werden: ${error.message}`);
     }
-    return data ?? [];
+    return (data as ZeitModuleStatsRow[] | null) ?? [];
   }
 
   async upsertProfile(profile: Partial<ZeitProfile>): Promise<ZeitProfile> {
@@ -187,7 +189,7 @@ export class TimeTrackingService {
     };
 
     const { data, error } = await this.supabase
-      .from<ZeitProfileRow>(ZEIT_TABLES.PROFILES)
+      .from(ZEIT_TABLES.PROFILES)
       .upsert(row, { onConflict: "user_id" })
       .select()
       .single();
@@ -196,14 +198,19 @@ export class TimeTrackingService {
       throw new Error(`Profil konnte nicht gespeichert werden: ${error.message}`);
     }
 
-    return mapProfileRow(data);
+    const profileRow = data as ZeitProfileRow | null;
+    if (!profileRow) {
+      throw new Error("Profil konnte nicht gespeichert werden: Leere Antwort erhalten.");
+    }
+
+    return mapProfileRow(profileRow);
   }
 
   async createFolder(payload: CreateFolderPayload): Promise<TimeFolder> {
     const orderIndex = await this.computeNextFolderOrder(payload.parentId);
 
     const { data, error } = await this.supabase
-      .from<ZeitFolderRow>(ZEIT_TABLES.FOLDERS)
+      .from(ZEIT_TABLES.FOLDERS)
       .insert({
         user_id: this.user.id,
         name: payload.name,
@@ -216,7 +223,11 @@ export class TimeTrackingService {
     if (error) {
       throw new Error(`Ordner konnte nicht erstellt werden: ${error.message}`);
     }
-    return mapFolderRow(data);
+    const folderRow = data as ZeitFolderRow | null;
+    if (!folderRow) {
+      throw new Error("Ordner konnte nicht erstellt werden: Leere Antwort erhalten.");
+    }
+    return mapFolderRow(folderRow);
   }
 
   async updateFolder(id: string, data: FolderUpdateInput): Promise<TimeFolder> {
@@ -226,7 +237,7 @@ export class TimeTrackingService {
     if (data.order !== undefined) update.order_index = data.order;
 
     const { data: updated, error } = await this.supabase
-      .from<ZeitFolderRow>(ZEIT_TABLES.FOLDERS)
+      .from(ZEIT_TABLES.FOLDERS)
       .update(update)
       .eq("id", id)
       .eq("user_id", this.user.id)
@@ -237,7 +248,12 @@ export class TimeTrackingService {
       throw new Error(`Ordner konnte nicht aktualisiert werden: ${error.message}`);
     }
 
-    return mapFolderRow(updated);
+    const folderRow = updated as ZeitFolderRow | null;
+    if (!folderRow) {
+      throw new Error("Ordner konnte nicht aktualisiert werden: Leere Antwort erhalten.");
+    }
+
+    return mapFolderRow(folderRow);
   }
 
   async deleteFolder(id: string): Promise<void> {
@@ -256,7 +272,7 @@ export class TimeTrackingService {
     const orderIndex = await this.computeNextModuleOrder(payload.folderId);
 
     const { data, error } = await this.supabase
-      .from<ZeitModuleRow>(ZEIT_TABLES.MODULES)
+      .from(ZEIT_TABLES.MODULES)
       .insert({
         user_id: this.user.id,
         folder_id: payload.folderId,
@@ -271,7 +287,11 @@ export class TimeTrackingService {
     if (error) {
       throw new Error(`Modul konnte nicht erstellt werden: ${error.message}`);
     }
-    return mapModuleRow(data);
+    const moduleRow = data as ZeitModuleRow | null;
+    if (!moduleRow) {
+      throw new Error("Modul konnte nicht erstellt werden: Leere Antwort erhalten.");
+    }
+    return mapModuleRow(moduleRow);
   }
 
   async updateModule(id: string, data: ModuleUpdateInput): Promise<TimeModule> {
@@ -283,7 +303,7 @@ export class TimeTrackingService {
     if (data.order !== undefined) update.order_index = data.order;
 
     const { data: updated, error } = await this.supabase
-      .from<ZeitModuleRow>(ZEIT_TABLES.MODULES)
+      .from(ZEIT_TABLES.MODULES)
       .update(update)
       .eq("id", id)
       .eq("user_id", this.user.id)
@@ -294,7 +314,12 @@ export class TimeTrackingService {
       throw new Error(`Modul konnte nicht aktualisiert werden: ${error.message}`);
     }
 
-    return mapModuleRow(updated);
+    const moduleRow = updated as ZeitModuleRow | null;
+    if (!moduleRow) {
+      throw new Error("Modul konnte nicht aktualisiert werden: Leere Antwort erhalten.");
+    }
+
+    return mapModuleRow(moduleRow);
   }
 
   async deleteModule(id: string): Promise<void> {
@@ -313,7 +338,7 @@ export class TimeTrackingService {
     const durationMinutes = hoursToMinutes(payload.durationHours);
 
     const { data, error } = await this.supabase
-      .from<ZeitEntryRow>(ZEIT_TABLES.ENTRIES)
+      .from(ZEIT_TABLES.ENTRIES)
       .insert({
         user_id: this.user.id,
         module_id: payload.moduleId,
@@ -330,7 +355,12 @@ export class TimeTrackingService {
       throw new Error(`Zeiteintrag konnte nicht erstellt werden: ${error.message}`);
     }
 
-    return mapEntryRow(data);
+    const entryRow = data as ZeitEntryRow | null;
+    if (!entryRow) {
+      throw new Error("Zeiteintrag konnte nicht erstellt werden: Leere Antwort erhalten.");
+    }
+
+    return mapEntryRow(entryRow);
   }
 
   async updateEntry(id: string, payload: EntryUpdateInput): Promise<TimeEntry> {
@@ -344,7 +374,7 @@ export class TimeTrackingService {
     }
 
     const { data, error } = await this.supabase
-      .from<ZeitEntryRow>(ZEIT_TABLES.ENTRIES)
+      .from(ZEIT_TABLES.ENTRIES)
       .update(update)
       .eq("id", id)
       .eq("user_id", this.user.id)
@@ -355,7 +385,12 @@ export class TimeTrackingService {
       throw new Error(`Zeiteintrag konnte nicht aktualisiert werden: ${error.message}`);
     }
 
-    return mapEntryRow(data);
+    const entryRow = data as ZeitEntryRow | null;
+    if (!entryRow) {
+      throw new Error("Zeiteintrag konnte nicht aktualisiert werden: Leere Antwort erhalten.");
+    }
+
+    return mapEntryRow(entryRow);
   }
 
   async deleteEntry(id: string): Promise<void> {
@@ -378,7 +413,7 @@ export class TimeTrackingService {
     note?: string | null;
   }): Promise<ZeitTimerSessionRow> {
     const { data, error } = await this.supabase
-      .from<ZeitTimerSessionRow>(ZEIT_TABLES.TIMER_SESSIONS)
+      .from(ZEIT_TABLES.TIMER_SESSIONS)
       .insert({
         user_id: this.user.id,
         module_id: entry.moduleId ?? null,
@@ -393,7 +428,11 @@ export class TimeTrackingService {
     if (error) {
       throw new Error(`Timer-Session konnte nicht gespeichert werden: ${error.message}`);
     }
-    return data;
+    const timerRow = data as ZeitTimerSessionRow | null;
+    if (!timerRow) {
+      throw new Error("Timer-Session konnte nicht gespeichert werden: Leere Antwort erhalten.");
+    }
+    return timerRow;
   }
 
   private async computeNextFolderOrder(parentId: string | null): Promise<number> {
