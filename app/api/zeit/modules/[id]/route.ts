@@ -10,18 +10,11 @@ function resolveStatus(error: unknown): number {
   return 500;
 }
 
-type RouteContext = { params: Promise<{ id: string }> };
-
-async function getParamsId(context: RouteContext): Promise<string> {
-  const params = await context.params;
-  return params.id;
-}
-
-export async function PATCH(request: Request, context: RouteContext) {
+export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const payload = await request.json();
     const service = await TimeTrackingService.fromRequest();
-    const id = await getParamsId(context);
+    const { id } = await params;
     const updatedModule = await service.updateModule(id, payload);
     return NextResponse.json({ data: updatedModule });
   } catch (error) {
@@ -32,10 +25,10 @@ export async function PATCH(request: Request, context: RouteContext) {
   }
 }
 
-export async function DELETE(_request: Request, context: RouteContext) {
+export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const service = await TimeTrackingService.fromRequest();
-    const id = await getParamsId(context);
+    const { id } = await params;
     await service.deleteModule(id);
     return NextResponse.json({ success: true });
   } catch (error) {

@@ -30,6 +30,7 @@ import {
 } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 import { useTimeTracking, FolderNode } from "../../hooks/useTimeTracking";
+import type { CreateModulePayload, TimeModule } from "../../types/time";
 import { notifications } from "@mantine/notifications";
 
 type FolderFormState = {
@@ -247,7 +248,7 @@ export default function StructurePageContent() {
       type: "folder",
       id: folderId,
       name: folderPath,
-      description: "Alle Unterordner und Projekte werden ebenfalls gelöscht. Dieser Schritt kann nicht rückgängig gemacht werden.",
+      description: "Alle Unterordner und Projekte werden ebenfalls geloescht. Dieser Schritt kann nicht rückgängig gemacht werden.",
     });
   };
 
@@ -274,21 +275,21 @@ export default function StructurePageContent() {
       if (deleteTarget.type === "folder") {
         await deleteFolder(deleteTarget.id);
         notifications.show({
-          title: "Ordner gelöscht",
+          title: "Ordner geloescht",
           message: `"${deleteTarget.name}" wurde entfernt.`,
           color: "green",
         });
       } else {
         await deleteModule(deleteTarget.id);
         notifications.show({
-          title: "Projekt gelöscht",
+          title: "Projekt geloescht",
           message: `"${deleteTarget.name}" wurde entfernt.`,
           color: "green",
         });
       }
       setDeleteTarget(null);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Element konnte nicht gelöscht werden.";
+      const message = error instanceof Error ? error.message : "Element konnte nicht geloescht werden.";
       notifications.show({
         title: "Fehler",
         message,
@@ -346,7 +347,7 @@ export default function StructurePageContent() {
           <Stack gap={4}>
             <Title order={2}>Ordner & Projekte</Title>
             <Text c="dimmed">
-              Verschachtelte Ordnerstruktur mit Projekten. Ordner lassen sich einklappen, bearbeiten oder löschen.
+              Verschachtelte Ordnerstruktur mit Projekten. Ordner lassen sich einklappen, bearbeiten oder loeschen.
             </Text>
           </Stack>
           <Group
@@ -507,16 +508,16 @@ export default function StructurePageContent() {
         </Stack>
       </Modal>
 
-      <Modal opened={deleteTarget !== null} onClose={closeDeleteModal} title="löschen bestätigen" radius="lg" size="sm">
+      <Modal opened={deleteTarget !== null} onClose={closeDeleteModal} title="loeschen bestaetigen" radius="lg" size="sm">
         <Stack gap="md">
           <Stack gap={4}>
             <Text>
               {deleteTarget?.type === "folder"
-                ? `Moechtest du den Ordner "${deleteTarget?.name}" wirklich löschen?`
-                : `Moechtest du das Projekt "${deleteTarget?.name}" wirklich löschen?`}
+                ? `Moechtest du den Ordner "${deleteTarget?.name}" wirklich loeschen?`
+                : `Moechtest du das Projekt "${deleteTarget?.name}" wirklich loeschen?`}
             </Text>
             <Text size="sm" c="dimmed">
-              {deleteTarget?.description ?? "Dieser Schritt kann nicht rückgängig gemacht werden."}
+              {deleteTarget?.description ?? "Dieser Schritt kann nicht rueckgaengig gemacht werden."}
             </Text>
           </Stack>
           <Group justify="flex-end">
@@ -524,7 +525,7 @@ export default function StructurePageContent() {
               Abbrechen
             </Button>
             <Button color="red" onClick={confirmDelete} loading={deleteLoading} disabled={deleteLoading}>
-              löschen
+              loeschen
             </Button>
           </Group>
         </Stack>
@@ -613,7 +614,7 @@ function FolderCard({
               variant="light"
               color="red"
               onClick={() => onDeleteFolder(node.id)}
-              aria-label="Ordner löschen"
+              aria-label="Ordner loeschen"
               disabled={disabled}
             >
               <IconFolderMinus size={16} />
@@ -654,7 +655,7 @@ function FolderCard({
                             variant="light"
                             color="red"
                             onClick={() => onDeleteModule(mod.id)}
-                            aria-label="Projekt löschen"
+                            aria-label="Projekt loeschen"
                             disabled={disabled}
                           >
                             <IconTrash size={14} />
@@ -708,8 +709,6 @@ function collectModules(node: FolderNode) {
   });
   return modules;
 }
-
-
 
 
 
