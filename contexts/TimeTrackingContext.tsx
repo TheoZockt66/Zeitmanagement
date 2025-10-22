@@ -500,8 +500,13 @@ async function handleResponse<T>(response: Response, fallbackMessage: string): P
 
   const payloadObject = (payload as Record<string, unknown>) ?? null;
 
+  const resolvedPayload = payloadObject ?? {};
+
   if (!response.ok) {
-    const message = payload?.error ?? fallbackMessage;
+    const message =
+      typeof resolvedPayload === "object" && resolvedPayload !== null && "error" in resolvedPayload
+        ? (resolvedPayload.error as string)
+        : fallbackMessage;
     throw new Error(message);
   }
 
@@ -509,8 +514,8 @@ async function handleResponse<T>(response: Response, fallbackMessage: string): P
     return undefined as T;
   }
 
-  if (payloadObject && "data" in payloadObject) {
-    return payloadObject.data as T;
+  if (typeof resolvedPayload === "object" && resolvedPayload !== null && "data" in resolvedPayload) {
+    return (resolvedPayload as { data: T }).data;
   }
 
   return payload as T;
