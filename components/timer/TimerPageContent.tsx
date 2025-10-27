@@ -1,11 +1,13 @@
-﻿"use client";
+"use client";
 
 import {
   ActionIcon,
   Box,
   Flex,
   Group,
+  NumberInput,
   Stack,
+  Switch,
   Text,
   Tooltip,
   useMantineTheme,
@@ -19,6 +21,8 @@ const DECIMAL_FORMATTER = new Intl.NumberFormat("de-DE", {
   maximumFractionDigits: 2,
 });
 
+const DEFAULT_TIMER_MINUTES = 25;
+
 const pad = (value: number) => value.toString().padStart(2, "0");
 
 function formatElapsed(seconds: number) {
@@ -29,17 +33,24 @@ function formatElapsed(seconds: number) {
 }
 
 export default function TimerPageContent() {
-  const [seconds, setSeconds] = useState(0);
+  const [mode, setMode] = useState<"stopwatch" | "timer">("stopwatch");
+  const [stopwatchSeconds, setStopwatchSeconds] = useState(0);
+  const [timerDurationSeconds, setTimerDurationSeconds] = useState(DEFAULT_TIMER_MINUTES * 60);
+  const [remainingSeconds, setRemainingSeconds] = useState(DEFAULT_TIMER_MINUTES * 60);
   const [running, setRunning] = useState(false);
+
   const intervalRef = useRef<number | null>(null);
   const startTimestampRef = useRef<number | null>(null);
+  const targetEndRef = useRef<number | null>(null);
+
   const theme = useMantineTheme();
   const colorScheme = useComputedColorScheme("light", { getInitialValueInEffect: true });
   const isDark = colorScheme === "dark";
 
-  const decimalHours = useMemo(() => seconds / 3600, [seconds]);
+  const displaySeconds = mode === "stopwatch" ? stopwatchSeconds : remainingSeconds;
+  const decimalHours = useMemo(() => displaySeconds / 3600, [displaySeconds]);
   const decimalFormatted = useMemo(() => DECIMAL_FORMATTER.format(decimalHours), [decimalHours]);
-  const formattedTimer = useMemo(() => formatElapsed(seconds), [seconds]);
+  const formattedTimer = useMemo(() => formatElapsed(displaySeconds), [displaySeconds]);
 
   const clearIntervalRef = useCallback(() => {
     if (intervalRef.current !== null) {
@@ -48,29 +59,86 @@ export default function TimerPageContent() {
     }
   }, []);
 
+  const handleDurationChange = useCallback(
+    (value: string | number | null) => {
+      if (value === null || value === "") {
+        return;
+      }
+      const numericValue = typeof value === "number" ? value : Number(value);
+      if (Number.isNaN(numericValue)) {
+        return;
+      }
+      const minutes = Math.min(720, Math.max(1, numericValue));
+      const secondsValue = Math.round(minutes * 60);
+      setTimerDurationSeconds(secondsValue);
+      if (!running) {
+        setRemainingSeconds(secondsValue);
+      }
+    },
+    [running],
+  );
+
   const startTimer = useCallback(() => {
     if (running) return;
+
+    if (mode === "stopwatch") {
+      startTimestampRef.current = Date.now() - stopwatchSeconds * 1000;
+    } else {
+      const baseline = remainingSeconds > 0 ? remainingSeconds : timerDurationSeconds;
+      setRemainingSeconds(baseline);
+      targetEndRef.current = Date.now() + baseline * 1000;
+    }
+
     setRunning(true);
-    startTimestampRef.current = Date.now() - seconds * 1000;
+
     intervalRef.current = window.setInterval(() => {
-      if (!startTimestampRef.current) return;
-      const elapsedMs = Date.now() - startTimestampRef.current;
-      setSeconds(Math.max(0, Math.floor(elapsedMs / 1000)));
+      if (mode === "stopwatch") {
+        if (!startTimestampRef.current) return;
+        const elapsedMs = Date.now() - startTimestampRef.current;
+        setStopwatchSeconds(Math.max(0, Math.floor(elapsedMs / 1000)));
+      } else {
+        if (!targetEndRef.current) return;
+        const remaining = Math.max(0, Math.ceil((targetEndRef.current - Date.now()) / 1000));
+        setRemainingSeconds(remaining);
+        if (remaining === 0) {
+          clearIntervalRef();
+          setRunning(false);
+          targetEndRef.current = null;
+        }
+      }
     }, 1000);
-  }, [running, seconds]);
+  }, [running, mode, stopwatchSeconds, remainingSeconds, timerDurationSeconds, clearIntervalRef]);
 
   const pauseTimer = useCallback(() => {
     if (!running) return;
     clearIntervalRef();
+    if (mode === "stopwatch") {
+      if (startTimestampRef.current) {
+        const elapsedMs = Date.now() - startTimestampRef.current;
+        setStopwatchSeconds(Math.max(0, Math.floor(elapsedMs / 1000)));
+      }
+      startTimestampRef.current = null;
+    } else {
+      if (targetEndRef.current) {
+        const remaining = Math.max(0, Math.ceil((targetEndRef.current - Date.now()) / 1000));
+        setRemainingSeconds(remaining);
+      }
+      targetEndRef.current = null;
+    }
     setRunning(false);
-  }, [clearIntervalRef, running]);
+  }, [running, mode, clearIntervalRef]);
 
   const resetTimer = useCallback(() => {
     clearIntervalRef();
     setRunning(false);
-    setSeconds(0);
-    startTimestampRef.current = null;
-  }, [clearIntervalRef]);
+    if (mode === "stopwatch") {
+      setStopwatchSeconds(0);
+      startTimestampRef.current = null;
+    } else {
+      setRemainingSeconds(timerDurationSeconds);
+      targetEndRef.current = null;
+    }
+  }, [clearIntervalRef, mode, timerDurationSeconds]);
 
   useEffect(() => {
     return () => {
@@ -78,10 +146,32 @@ export default function TimerPageContent() {
     };
   }, [clearIntervalRef]);
 
+  useEffect(() => {
+    clearIntervalRef();
+    setRunning(false);
+    startTimestampRef.current = null;
+    targetEndRef.current = null;
+    if (mode === "timer") {
+      setRemainingSeconds((prev) => (prev > 0 ? prev : timerDurationSeconds));
+    }
+  }, [mode, timerDurationSeconds, clearIntervalRef]);
+
+  useEffect(() => {
+    if (mode === "timer" && !running) {
+      setRemainingSeconds(timerDurationSeconds);
+    }
+  }, [timerDurationSeconds, mode, running]);
+
   const timerSegments = formattedTimer.split(":");
   const containerBackground = isDark ? theme.colors.dark?.[7] ?? "#101218" : theme.white ?? "#ffffff";
   const colonColor = isDark ? theme.colors.gray[3] : theme.colors.dark[5];
   const decimalTextColor = isDark ? theme.colors.gray[4] : theme.colors.gray[6];
+
+  const resetDisabled =
+    !running &&
+    (mode === "stopwatch"
+      ? stopwatchSeconds === 0
+      : remainingSeconds === timerDurationSeconds);
 
   return (
     <Flex
@@ -95,8 +185,35 @@ export default function TimerPageContent() {
       style={{
         backgroundColor: containerBackground,
         transition: "background-color 160ms ease",
+        position: "relative",
       }}
     >
+      <Group gap="xs" align="center" style={{ alignSelf: "flex-end" }}>
+        <Text size="sm" c="dimmed">
+          {mode === "timer" ? "Timer" : "Stopuhr"}
+        </Text>
+        <Switch
+          size="sm"
+          color="indigo"
+          checked={mode === "timer"}
+          onChange={(event) => setMode(event.currentTarget.checked ? "timer" : "stopwatch")}
+          aria-label="Timer-Modus umschalten"
+        />
+        {mode === "timer" ? (
+          <NumberInput
+            size="xs"
+            maw={120}
+            min={1}
+            max={720}
+            hideControls
+            value={Math.round(timerDurationSeconds / 60)}
+            onChange={handleDurationChange}
+            aria-label="Timer-Dauer in Minuten"
+            placeholder="Minuten"
+          />
+        ) : null}
+      </Group>
+
       <Group gap="lg" align="center" justify="center" wrap="wrap">
         {timerSegments.map((segment, index) => (
           <Group key={`${segment}-${index}`} gap="sm" align="center">
@@ -135,7 +252,7 @@ export default function TimerPageContent() {
               </ActionIcon>
             </Tooltip>
           ) : (
-            <Tooltip label={seconds === 0 ? "Start" : "Fortsetzen"}>
+            <Tooltip label={displaySeconds === 0 ? "Start" : "Fortsetzen"}>
               <ActionIcon
                 size="lg"
                 radius="xl"
@@ -148,22 +265,22 @@ export default function TimerPageContent() {
               </ActionIcon>
             </Tooltip>
           )}
-          <Tooltip label="Zurücksetzen">
+          <Tooltip label="Zuruecksetzen">
             <ActionIcon
               size="lg"
               radius="xl"
               variant={isDark ? "subtle" : "light"}
               color="gray"
               onClick={resetTimer}
-              aria-label="Timer zurücksetzen"
-              disabled={seconds === 0 && !running}
+              aria-label="Timer zuruecksetzen"
+              disabled={resetDisabled}
             >
               <IconRotateClockwise size={18} />
             </ActionIcon>
           </Tooltip>
         </Group>
         <Text size="sm" style={{ color: decimalTextColor }}>
-          {decimalFormatted} Std
+          {mode === "timer" ? `${decimalFormatted} Std verbleibend` : `${decimalFormatted} Std`}
         </Text>
       </Stack>
     </Flex>
@@ -258,4 +375,3 @@ function FlipBlock({ value }: { value: string }) {
     </Box>
   );
 }
-

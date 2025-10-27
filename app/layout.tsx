@@ -9,15 +9,15 @@ import Providers from "./providers";
 
 export const metadata: Metadata = {
   title: "Zeitmanagement",
-  description: "Zeiterfassung für Studium, Freizeit und persönliche Projekte",
+  description: "Zeiterfassung fuer Studium, Freizeit und persoenliche Projekte",
   robots: {
     index: false,
   },
   keywords: ["Zeitmanagement", "Zeiterfassung", "Studium"],
   icons: {
-    icon: "/sandglass.svg",
-    shortcut: "/sandglass.svg",
-    apple: "/sandglass.svg",
+    icon: "/hourglass-high.svg",
+    shortcut: "/hourglass-high.svg",
+    apple: "/hourglass-high.svg",
   },
 };
 

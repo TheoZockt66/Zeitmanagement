@@ -2,6 +2,8 @@
 
 import {
   Alert,
+  Badge,
+  Box,
   Button,
   Card,
   Center,
@@ -12,21 +14,34 @@ import {
   Paper,
   Progress,
   RingProgress,
-  SegmentedControl,
+  Select,
   SimpleGrid,
   Stack,
   Table,
   Text,
   Title,
+  Tooltip,
 } from "@mantine/core";
-import { IconChartDonut3, IconClockHour9, IconTargetArrow } from "@tabler/icons-react";
+import { IconArrowNarrowLeft, IconChartDonut3, IconChevronRight, IconClockHour9, IconTargetArrow } from "@tabler/icons-react";
 import dayjs from "dayjs";
-import { useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useTimeTracking } from "../../hooks/useTimeTracking";
+import type { FolderNode } from "../../hooks/useTimeTracking";
+import { useMediaQuery } from "@mantine/hooks";
 
 const DAYS_TO_RENDER = 14;
 const DISTRIBUTION_COLORS = ["#4c6ef5", "#82c91e", "#f59f00", "#d6336c", "#20c997", "#7950f2"];
+
+type RingDistributionItem = {
+  id: string;
+  type: "folder" | "module";
+  name: string;
+  hours: number;
+  color: string;
+  parentId: string | null;
+};
 
 function ActivityHeatmap({ values }: { values: { date: string; hours: number }[] }) {
   return (
@@ -65,70 +80,182 @@ function ActivityHeatmap({ values }: { values: { date: string; hours: number }[]
 export default function AnalyticsPageContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
+  const pathname = usePathname();
+  const isMobile = useMediaQuery("(max-width: 48em)", true);
   const timeTracking = useTimeTracking();
   const {
     folderTree,
     modulesWithRelations,
     flattenedFolders,
     folderDescendantsMap,
-    totalTrackedHours,
     loading: stateLoading,
     initialized,
     error,
     refresh,
   } = timeTracking;
 
-  const initialFolderFilter = searchParams.get("folder") ?? "all";
-  const [activeFolder, setActiveFolder] = useState(initialFolderFilter);
+  const initialFolderFilter = (searchParams.get("folder") ?? "all") as "all" | string;
+  const [activeFolderId, setActiveFolderId] = useState<"all" | string>(initialFolderFilter);
   const initialLoading = stateLoading && !initialized;
 
-  const handleSegmentChange = (value: string) => {
-    setActiveFolder(value);
-    const params = new URLSearchParams(searchParams);
-    if (value === "all") {
-      params.delete("folder");
-    } else {
-      params.set("folder", value);
-    }
-    router.replace(`?${params.toString()}`, { scroll: false });
-  };
+  useEffect(() => {
+    const nextValue = (searchParams.get("folder") ?? "all") as "all" | string;
+    setActiveFolderId((prev) => (prev === nextValue ? prev : nextValue));
+  }, [searchParams]);
 
-  const segmentData = useMemo(() => {
-    const base = [{ label: "Alle", value: "all" }];
-    const roots = folderTree.map((folder) => ({ label: folder.name, value: folder.id }));
-    return [...base, ...roots];
+  const folderPathMap = useMemo(() => {
+    const map = new Map<string, string>();
+    flattenedFolders.forEach((folder) => map.set(folder.id, folder.path));
+    return map;
+  }, [flattenedFolders]);
+
+  const folderOptions = useMemo(
+    () => [
+      { label: "Alle Ordner", value: "all" },
+      ...flattenedFolders.map((folder) => ({
+        label: folder.path,
+        value: folder.id,
+      })),
+    ],
+    [flattenedFolders],
+  );
+
+  const folderNodeMap = useMemo(() => {
+    const map = new Map<string, FolderNode>();
+    const traverse = (nodes: FolderNode[]) => {
+      nodes.forEach((node) => {
+        map.set(node.id, node);
+        traverse(node.children);
+      });
+    };
+    traverse(folderTree);
+    return map;
   }, [folderTree]);
 
+  const activeFolderNode = activeFolderId === "all" ? null : folderNodeMap.get(activeFolderId) ?? null;
+
+  const handleFolderSelection = useCallback(
+    (value: string | "all") => {
+      setActiveFolderId(value);
+      const params = new URLSearchParams(searchParams.toString());
+      if (value === "all") {
+        params.delete("folder");
+      } else {
+        params.set("folder", value);
+      }
+      const queryString = params.toString();
+      router.replace(`${pathname}${queryString ? `?${queryString}` : ""}`, { scroll: false });
+    },
+    [pathname, router, searchParams],
+  );
+
+  const handleNavigateUp = useCallback(() => {
+    if (!activeFolderNode) {
+      handleFolderSelection("all");
+      return;
+    }
+    if (activeFolderNode.parentId) {
+      handleFolderSelection(activeFolderNode.parentId);
+    } else {
+      handleFolderSelection("all");
+    }
+  }, [activeFolderNode, handleFolderSelection]);
+
+  const activeFolderLabel =
+    activeFolderId === "all" ? "Alle Ordner" : folderPathMap.get(activeFolderId) ?? "Ordner";
+  const canNavigateUp = activeFolderId !== "all";
+
   const allowedFolders = useMemo(() => {
-    if (activeFolder === "all" || !activeFolder) return null;
-    return folderDescendantsMap.get(activeFolder) ?? new Set([activeFolder]);
-  }, [activeFolder, folderDescendantsMap]);
+    if (activeFolderId === "all") return null;
+    return folderDescendantsMap.get(activeFolderId) ?? new Set([activeFolderId]);
+  }, [activeFolderId, folderDescendantsMap]);
 
   const filteredModules = useMemo(() => {
     if (!allowedFolders) return modulesWithRelations;
     return modulesWithRelations.filter((module) => allowedFolders.has(module.folderId));
   }, [modulesWithRelations, allowedFolders]);
 
-  const distribution = useMemo(() => {
-    const roots = activeFolder === "all" ? folderTree : folderTree.filter((folder) => folder.id === activeFolder);
-    return roots.map((folder, index) => ({
-      id: folder.id,
-      name: folder.name,
-      hours: folder.totalHours,
-      color: DISTRIBUTION_COLORS[index % DISTRIBUTION_COLORS.length],
-    }));
-  }, [folderTree, activeFolder]);
-
-  const ringSections = useMemo(() => {
-    if (distribution.length === 0 || totalTrackedHours === 0) {
-      return [{ value: 100, color: "gray.4" }];
+  const distribution = useMemo<RingDistributionItem[]>(() => {
+    if (activeFolderId === "all" || !activeFolderNode) {
+      return folderTree.map((folder, index) => ({
+        id: folder.id,
+        type: "folder" as const,
+        name: folder.name,
+        hours: folder.totalHours,
+        color: DISTRIBUTION_COLORS[index % DISTRIBUTION_COLORS.length],
+        parentId: folder.parentId,
+      }));
     }
-    return distribution.map((item) => ({
-      value: (item.hours / totalTrackedHours) * 100,
-      color: item.color,
-      tooltip: `${item.name}: ${item.hours.toFixed(1)} h`,
-    }));
-  }, [distribution, totalTrackedHours]);
+
+    const items: RingDistributionItem[] = [];
+    let colorIndex = 0;
+
+    const children = [...activeFolderNode.children].sort((a, b) => a.order - b.order);
+    children.forEach((child) => {
+      items.push({
+        id: child.id,
+        type: "folder",
+        name: child.name,
+        hours: child.totalHours,
+        color: DISTRIBUTION_COLORS[colorIndex % DISTRIBUTION_COLORS.length],
+        parentId: child.parentId,
+      });
+      colorIndex += 1;
+    });
+
+    const modules = [...activeFolderNode.modules].sort((a, b) => a.order - b.order);
+    modules.forEach((mod) => {
+      items.push({
+        id: mod.id,
+        type: "module",
+        name: mod.name,
+        hours: mod.totalHours,
+        color: DISTRIBUTION_COLORS[colorIndex % DISTRIBUTION_COLORS.length],
+        parentId: activeFolderNode.id,
+      });
+      colorIndex += 1;
+    });
+
+    return items;
+  }, [activeFolderId, activeFolderNode, folderTree]);
+
+  const distributionTotal = distribution.reduce((sum, item) => sum + item.hours, 0);
+
+  const buildEntriesHref = useCallback((item: RingDistributionItem) => {
+    const params = new URLSearchParams();
+    if (item.type === "folder") {
+      params.set("folder", item.id);
+    } else {
+      params.set("module", item.id);
+      if (item.parentId) {
+        params.set("folder", item.parentId);
+      }
+    }
+    const query = params.toString();
+    return `/entries${query ? `?${query}` : ""}`;
+  }, []);
+
+  const handleRingSectionClick = useCallback(
+    (item: RingDistributionItem) => {
+      if (item.type === "folder") {
+        handleFolderSelection(item.id);
+      } else {
+        router.push(buildEntriesHref(item));
+      }
+    },
+    [buildEntriesHref, handleFolderSelection, router],
+  );
+
+  const ringSections =
+    distributionTotal > 0
+      ? distribution.map((item) => ({
+          value: (item.hours / distributionTotal) * 100,
+          color: item.color,
+          tooltip: `${item.name}: ${item.hours.toFixed(1)} h`,
+          onClick: () => handleRingSectionClick(item),
+          style: { cursor: "pointer" },
+        }))
+      : [{ value: 100, color: "gray.4" }];
 
   const hoursByDay = useMemo(() => {
     const today = dayjs();
@@ -156,12 +283,6 @@ export default function AnalyticsPageContent() {
     });
   }, [filteredModules]);
 
-  const folderPathMap = useMemo(() => {
-    const map = new Map<string, string>();
-    flattenedFolders.forEach((folder) => map.set(folder.id, folder.path));
-    return map;
-  }, [flattenedFolders]);
-
   if (initialLoading) {
     return (
       <Center mih="70vh">
@@ -181,13 +302,32 @@ export default function AnalyticsPageContent() {
 
       <Card padding="md" radius="md">
         <Stack gap="md">
-          <Text fw={600}>Ansicht filtern</Text>
-          <SegmentedControl
-            fullWidth
-            radius="xl"
-            value={activeFolder}
-            onChange={handleSegmentChange}
-            data={segmentData}
+          <Group justify="space-between" align="flex-start">
+            <Stack gap={2}>
+              <Text fw={600}>Ansicht filtern</Text>
+              <Text size="sm" c="dimmed">
+                Waehle einen Ordner oder Unterordner fuer detaillierte Kennzahlen.
+              </Text>
+            </Stack>
+            {canNavigateUp ? (
+              <Button
+                size="xs"
+                variant="light"
+                leftSection={<IconArrowNarrowLeft size={14} />}
+                onClick={handleNavigateUp}
+              >
+                Zurück
+              </Button>
+            ) : null}
+          </Group>
+          <Select
+            label="Ordner"
+            placeholder="Ordner auswaehlen"
+            data={folderOptions}
+            value={activeFolderId}
+            onChange={(value) => handleFolderSelection((value ?? "all") as string | "all")}
+            searchable
+            allowDeselect={false}
           />
         </Stack>
       </Card>
@@ -226,44 +366,84 @@ export default function AnalyticsPageContent() {
       <Grid gutter="xl">
         <Grid.Col span={{ base: 12, md: 6 }}>
           <Paper radius="md" p="xl">
-            <Stack gap="md" align="center">
-              <Group gap="sm">
+            <Stack gap="lg">
+              <Group gap="sm" align="flex-start">
                 <IconChartDonut3 size={22} />
-                <Title order={4}>Zeitverteilung</Title>
+                <Stack gap={2}>
+                  <Title order={4}>Zeitverteilung</Title>
+                  <Text size="sm" c="dimmed">
+                    {activeFolderLabel}
+                  </Text>
+                </Stack>
               </Group>
               <RingProgress
                 size={220}
                 thickness={28}
+                sections={ringSections}
                 label={
                   <Stack gap={4} align="center">
                     <Text size="sm" c="dimmed">
                       Gesamt
                     </Text>
-                    <Title order={3}>{totalTrackedHours.toFixed(1)} h</Title>
+                    <Title order={3}>{distributionTotal.toFixed(1)} h</Title>
                   </Stack>
                 }
-                sections={ringSections}
               />
-              <Stack gap={6} w="100%">
-                {distribution.map((item) => (
-                  <Group key={item.id} justify="space-between">
-                    <Group gap={8} align="center">
-                      <span
-                        style={{
-                          width: 12,
-                          height: 12,
-                          borderRadius: 999,
-                          display: "inline-block",
-                          backgroundColor: item.color,
-                        }}
-                      />
-                      <Text>{item.name}</Text>
+              <Stack gap="sm">
+                {distribution.map((item) => {
+                  const entriesHref = buildEntriesHref(item);
+                  const isFolder = item.type === "folder";
+                  return (
+                    <Group key={item.id} justify="space-between" align="center">
+                      <Group gap="sm" align="center">
+                        <Box
+                          style={{
+                            width: 12,
+                            height: 12,
+                            borderRadius: 999,
+                            backgroundColor: item.color,
+                          }}
+                        />
+                        <Stack gap={2} style={{ minWidth: 0 }}>
+                          <Group gap={6} align="center">
+                            <Text fw={500}>{item.name}</Text>
+                            <Badge size="xs" variant="light" color={isFolder ? "indigo" : "gray"}>
+                              {isFolder ? "Ordner" : "Projekt"}
+                            </Badge>
+                          </Group>
+                        </Stack>
+                      </Group>
+                      <Group gap="xs">
+                        <Text size="sm" c="dimmed">
+                          {item.hours.toFixed(1)} h
+                        </Text>
+                        {isFolder ? (
+                          <Tooltip label="In Unterordner wechseln" withArrow>
+                            <Button
+                              size="xs"
+                              variant="light"
+                              rightSection={<IconChevronRight size={14} />}
+                              onClick={() => handleFolderSelection(item.id)}
+                            >
+                              Details
+                            </Button>
+                          </Tooltip>
+                        ) : (
+                          <Tooltip label="Zeiterfassung mit Filter öffnen" withArrow>
+                            <Button
+                              size="xs"
+                              variant="subtle"
+                              component={Link}
+                              href={entriesHref}
+                            >
+                              Einträge
+                            </Button>
+                          </Tooltip>
+                        )}
+                      </Group>
                     </Group>
-                    <Text size="sm" c="dimmed">
-                      {item.hours.toFixed(1)} h
-                    </Text>
-                  </Group>
-                ))}
+                  );
+                })}
                 {distribution.length === 0 ? (
                   <Center>
                     <Text c="dimmed">Keine Daten vorhanden.</Text>
@@ -342,44 +522,79 @@ export default function AnalyticsPageContent() {
       <Paper radius="md" p="xl">
         <Stack gap="md">
           <Title order={4}>Detailtabelle</Title>
-          <Table highlightOnHover striped withColumnBorders withTableBorder>
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th>Projekt</Table.Th>
-                <Table.Th>Ordner</Table.Th>
-                <Table.Th>Einträge</Table.Th>
-                <Table.Th>Ist-Stunden</Table.Th>
-                <Table.Th>Ziel-Stunden</Table.Th>
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {modulesWithProgress.map((module) => (
-                <Table.Tr key={module.id}>
-                  <Table.Td>{module.name}</Table.Td>
-                  <Table.Td>{folderPathMap.get(module.folderId) ?? "—"}</Table.Td>
-                  <Table.Td>{module.entries.length}</Table.Td>
-                  <Table.Td>{module.totalHours.toFixed(1)} h</Table.Td>
-                  <Table.Td>{module.target > 0 ? `${module.target.toFixed(1)} h` : "—"}</Table.Td>
-                </Table.Tr>
-              ))}
-              {modulesWithProgress.length === 0 ? (
+          {isMobile ? (
+            modulesWithProgress.length === 0 ? (
+              <Center py="xl">
+                <Text c="dimmed">Keine Projekte vorhanden.</Text>
+              </Center>
+            ) : (
+              <Stack gap="sm">
+                {modulesWithProgress.map((module) => (
+                  <Paper key={module.id} withBorder radius="md" p="md" shadow="xs">
+                    <Stack gap="sm">
+                      <Group justify="space-between" align="flex-start">
+                        <Stack gap={2}>
+                          <Text fw={600}>{module.name}</Text>
+                          <Text size="sm" c="dimmed">
+                            {folderPathMap.get(module.folderId) ?? "—"}
+                          </Text>
+                        </Stack>
+                        <Badge size="sm" variant="light" color="indigo">
+                          {module.entries.length} Einträge
+                        </Badge>
+                      </Group>
+                      <Group justify="space-between" align="center">
+                        <Text size="sm" c="dimmed">
+                          Ist / Ziel
+                        </Text>
+                        <Text fw={600}>
+                          {module.totalHours.toFixed(1)} h / {module.target > 0 ? `${module.target.toFixed(1)} h` : "–"}
+                        </Text>
+                      </Group>
+                      <Progress color="indigo" radius="xl" value={module.progress} />
+                    </Stack>
+                  </Paper>
+                ))}
+              </Stack>
+            )
+          ) : (
+            <Table highlightOnHover striped withColumnBorders withTableBorder>
+              <Table.Thead>
                 <Table.Tr>
-                  <Table.Td colSpan={5}>
-                    <Center py="xl">
-                      <Text c="dimmed">Keine Projekte vorhanden.</Text>
-                    </Center>
-                  </Table.Td>
+                  <Table.Th>Projekt</Table.Th>
+                  <Table.Th>Ordner</Table.Th>
+                  <Table.Th>Einträge</Table.Th>
+                  <Table.Th>Ist-Stunden</Table.Th>
+                  <Table.Th>Ziel-Stunden</Table.Th>
                 </Table.Tr>
-              ) : null}
-            </Table.Tbody>
-          </Table>
+              </Table.Thead>
+              <Table.Tbody>
+                {modulesWithProgress.map((module) => (
+                  <Table.Tr key={module.id}>
+                    <Table.Td>{module.name}</Table.Td>
+                    <Table.Td>{folderPathMap.get(module.folderId) ?? "—"}</Table.Td>
+                    <Table.Td>{module.entries.length}</Table.Td>
+                    <Table.Td>{module.totalHours.toFixed(1)} h</Table.Td>
+                    <Table.Td>{module.target > 0 ? `${module.target.toFixed(1)} h` : "-"}</Table.Td>
+                  </Table.Tr>
+                ))}
+                {modulesWithProgress.length === 0 ? (
+                  <Table.Tr>
+                    <Table.Td colSpan={5}>
+                      <Center py="xl">
+                        <Text c="dimmed">Keine Projekte vorhanden.</Text>
+                      </Center>
+                    </Table.Td>
+                  </Table.Tr>
+                ) : null}
+              </Table.Tbody>
+            </Table>
+          )}
         </Stack>
       </Paper>
     </Stack>
   );
 }
-
-
 
 
 

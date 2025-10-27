@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import {
   ActionIcon,
@@ -19,13 +19,12 @@ import {
 } from "@mantine/core";
 import { DatePickerInput } from "@mantine/dates";
 import { useDisclosure, useMediaQuery } from "@mantine/hooks";
-import { notifications } from "@mantine/notifications";
-import { IconFilterOff, IconPlus, IconRefresh, IconPencil, IconTrash } from "@tabler/icons-react";
+import { IconFilterOff, IconPlus, IconRefresh } from "@tabler/icons-react";
 import dayjs from "dayjs";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useTimeTracking } from "../../hooks/useTimeTracking";
 import { EntryForm } from "./EntryForm";
-import type { TimeEntry } from "../../types/time";
 
 export default function EntriesPageContent() {
   const {
@@ -34,36 +33,127 @@ export default function EntriesPageContent() {
     flattenedFolders,
     folderDescendantsMap,
     getModuleById,
-    deleteEntry,
     loading: stateLoading,
     initialized,
     error,
     refresh,
   } = useTimeTracking();
   const isMobile = useMediaQuery("(max-width: 48em)");
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
 
-  const [folderFilter, setFolderFilter] = useState<string | null>(null);
-  const [moduleFilter, setModuleFilter] = useState<string | null>(null);
-  const [dateRange, setDateRange] = useState<[Date | null, Date | null]>([null, null]);
-
-  const [createModalOpened, { open: openCreateModal, close: closeCreateModal }] = useDisclosure(false);
-  const [editModalOpened, { open: openEditModal, close: closeEditModal }] = useDisclosure(false);
-  const [editEntryId, setEditEntryId] = useState<string | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<TimeEntry | null>(null);
-  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [folderFilter, setFolderFilter] = useState<string | null>(() => searchParams.get("folder"));
+  const [moduleFilter, setModuleFilter] = useState<string | null>(() => searchParams.get("module"));
+  const [dateRange, setDateRange] = useState<[Date | null, Date | null]>(() => [
+    parseDateParam(searchParams.get("from")),
+    parseDateParam(searchParams.get("to")),
+  ]);
+  const [modalOpened, { open: openModal, close: closeModal }] = useDisclosure(false);
 
   const moduleLookup = useMemo(
-    () => new Map(modulesWithRelations.map((module) => [module.id, module])),
+    () => new Map(modulesWithRelations.map((mod) => [mod.id, mod])),
     [modulesWithRelations],
+  );
+
+  useEffect(() => {
+    const nextFolder = searchParams.get("folder");
+    const nextModuleParam = searchParams.get("module");
+    const nextRange: [Date | null, Date | null] = [
+      parseDateParam(searchParams.get("from")),
+      parseDateParam(searchParams.get("to")),
+    ];
+
+    setFolderFilter((prev) => (prev === (nextFolder ?? null) ? prev : nextFolder));
+
+    const moduleCandidate = nextModuleParam ? moduleLookup.get(nextModuleParam) : null;
+    const allowedFolders = nextFolder ? folderDescendantsMap.get(nextFolder) ?? new Set([nextFolder]) : null;
+    const moduleValid = moduleCandidate && (!allowedFolders || allowedFolders.has(moduleCandidate.folderId));
+    const resolvedModule = moduleValid ? nextModuleParam : null;
+
+    setModuleFilter((prev) => (prev === resolvedModule ? prev : resolvedModule));
+
+    setDateRange((prev) => (areDateRangesEqual(prev, nextRange) ? prev : nextRange));
+  }, [searchParams, moduleLookup, folderDescendantsMap]);
+
+  const updateQuery = useCallback(
+    (changes: { folder?: string | null; module?: string | null; dateRange?: [Date | null, Date | null] }) => {
+      const params = new URLSearchParams(searchParams.toString());
+
+      if ("folder" in changes) {
+        const value = changes.folder;
+        if (value) {
+          params.set("folder", value);
+        } else {
+          params.delete("folder");
+        }
+      }
+
+      if ("module" in changes) {
+        const value = changes.module;
+        if (value) {
+          params.set("module", value);
+        } else {
+          params.delete("module");
+        }
+      }
+
+      if ("dateRange" in changes) {
+        const [from, to] = changes.dateRange ?? [null, null];
+        const fromToken = formatDateParam(from);
+        const toToken = formatDateParam(to);
+
+        if (fromToken) {
+          params.set("from", fromToken);
+        } else {
+          params.delete("from");
+        }
+
+        if (toToken) {
+          params.set("to", toToken);
+        } else {
+          params.delete("to");
+        }
+      }
+
+      const queryString = params.toString();
+      router.replace(`${pathname}${queryString ? `?${queryString}` : ""}`, { scroll: false });
+    },
+    [pathname, router, searchParams],
+  );
+
+  const handleFolderChange = useCallback(
+    (value: string | null) => {
+      setFolderFilter(value);
+      setModuleFilter(null);
+      updateQuery({ folder: value, module: null });
+    },
+    [updateQuery],
+  );
+
+  const handleModuleChange = useCallback(
+    (value: string | null) => {
+      setModuleFilter(value);
+      updateQuery({ module: value });
+    },
+    [updateQuery],
+  );
+
+  const handleDateRangeChange = useCallback(
+    (value: [Date | null, Date | null]) => {
+      setDateRange(value);
+      updateQuery({ dateRange: value });
+    },
+    [updateQuery],
   );
 
   const moduleOptions = useMemo(() => {
     const allowedFolders = folderFilter ? folderDescendantsMap.get(folderFilter) ?? new Set([folderFilter]) : null;
     return modulesWithRelations
-      .filter((module) => !allowedFolders || allowedFolders.has(module.folderId))
-      .map((module) => ({
-        label: module.name,
-        value: module.id,
+      .filter((mod) => !allowedFolders || allowedFolders.has(mod.folderId))
+      .map((mod) => ({
+        label: mod.name,
+        value: mod.id,
       }));
   }, [modulesWithRelations, folderFilter, folderDescendantsMap]);
 
@@ -80,44 +170,12 @@ export default function EntriesPageContent() {
     });
   }, [entriesSorted, moduleLookup, folderFilter, folderDescendantsMap, moduleFilter, dateRange]);
 
-  const entryToEdit = useMemo(() => {
-    if (!editEntryId) return null;
-    return entriesSorted.find((entry) => entry.id === editEntryId) ?? null;
-  }, [editEntryId, entriesSorted]);
-
-  const resetFilters = () => {
+  const resetFilters = useCallback(() => {
     setFolderFilter(null);
     setModuleFilter(null);
     setDateRange([null, null]);
-  };
-
-  const handleConfirmDelete = async () => {
-    if (!deleteTarget) return;
-    setDeleteLoading(true);
-    try {
-      await deleteEntry(deleteTarget.id);
-      notifications.show({
-        title: "Eintrag gelöscht",
-        message: `"${deleteTarget.activityType}" wurde entfernt.`,
-        color: "green",
-      });
-      setDeleteTarget(null);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Eintrag konnte nicht gelöscht werden.";
-      notifications.show({
-        title: "Fehler",
-        message,
-        color: "red",
-      });
-    } finally {
-      setDeleteLoading(false);
-    }
-  };
-
-  const closeDeleteModal = () => {
-    if (deleteLoading) return;
-    setDeleteTarget(null);
-  };
+    updateQuery({ folder: null, module: null, dateRange: [null, null] });
+  }, [updateQuery]);
 
   const initialLoading = stateLoading && !initialized;
 
@@ -153,7 +211,7 @@ export default function EntriesPageContent() {
         ) : null}
 
         <Group justify="space-between" align="flex-start" wrap="wrap" gap="lg">
-          <Stack gap={4} maw="60%">
+          <Stack gap={4}>
             <Title order={2}>Zeiterfassung</Title>
             <Text c="dimmed">
               Verwalte deine Lernzeiten, filtere nach Ordnern und Projekten und halte sie für spätere Auswertungen fest.
@@ -162,7 +220,7 @@ export default function EntriesPageContent() {
           <Button
             leftSection={<IconPlus size={18} />}
             size="md"
-            onClick={openCreateModal}
+            onClick={openModal}
             disabled={stateLoading}
             fullWidth={isMobile}
           >
@@ -181,10 +239,7 @@ export default function EntriesPageContent() {
                   value: folder.id,
                 }))}
                 value={folderFilter}
-                onChange={(value) => {
-                  setFolderFilter(value);
-                  setModuleFilter(null);
-                }}
+                onChange={handleFolderChange}
                 clearable
                 maw={isMobile ? "100%" : 220}
               />
@@ -193,7 +248,7 @@ export default function EntriesPageContent() {
                 placeholder="Alle Projekte"
                 data={moduleOptions}
                 value={moduleFilter}
-                onChange={setModuleFilter}
+                onChange={handleModuleChange}
                 disabled={moduleOptions.length === 0}
                 clearable
                 maw={isMobile ? "100%" : 220}
@@ -201,134 +256,125 @@ export default function EntriesPageContent() {
               <DatePickerInput
                 type="range"
                 label="Zeitraum"
-                placeholder="Zeitraum wählen"
+                placeholder="Zeitraum waehlen"
                 value={dateRange}
-                onChange={setDateRange}
+                onChange={handleDateRangeChange}
                 locale="de"
                 allowSingleDateInRange
                 clearable
                 maw={isMobile ? "100%" : 220}
               />
-              <ActionIcon variant="outline" size="lg" radius="md" aria-label="Filter zurücksetzen" onClick={resetFilters}>
+              <ActionIcon
+                variant="outline"
+                size="lg"
+                radius="md"
+                aria-label="Filter zuruecksetzen"
+                onClick={resetFilters}
+              >
                 <IconFilterOff size={18} />
               </ActionIcon>
             </Group>
           </Stack>
         </Card>
 
-        <Paper radius="md">
-          <ScrollArea>
-            <Table striped highlightOnHover withTableBorder withColumnBorders miw={800}>
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th>Datum</Table.Th>
-                  <Table.Th>Ordner</Table.Th>
-                  <Table.Th>Modul</Table.Th>
-                  <Table.Th>Tätigkeit</Table.Th>
-                  <Table.Th>Beschreibung</Table.Th>
-                  <Table.Th ta="right">Dauer (h)</Table.Th>
-                  <Table.Th ta="right">Aktionen</Table.Th>
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {filteredEntries.map((entry) => {
+        <Paper radius="md" p={isMobile ? "md" : undefined}>
+          {isMobile ? (
+            <Stack gap="sm">
+              {filteredEntries.length === 0 ? (
+                <Stack align="center" py="xl" gap="xs">
+                  <IconRefresh size={28} stroke={1.5} />
+                  <Text c="dimmed">Keine Einträge in diesem Filter gefunden.</Text>
+                </Stack>
+              ) : (
+                filteredEntries.map((entry) => {
                   const mod = moduleLookup.get(entry.moduleId) ?? getModuleById(entry.moduleId);
                   const folderPath = mod ? resolveFolderPath(mod.folderId, flattenedFolders) : "-";
                   return (
-                    <Table.Tr key={entry.id}>
-                      <Table.Td>{dayjs(entry.timestamp).format("DD.MM.YYYY")}</Table.Td>
-                      <Table.Td>{folderPath}</Table.Td>
-                      <Table.Td>
-                        <Text fw={600}>{mod?.name ?? "Unbekannt"}</Text>
-                      </Table.Td>
-                      <Table.Td>{entry.activityType}</Table.Td>
-                      <Table.Td>
-                        <Text size="sm" c="dimmed">
-                          {entry.description ?? "-"}
-                        </Text>
-                      </Table.Td>
-                      <Table.Td ta="right" fw={600}>
-                        {entry.durationHours.toFixed(2)}
-                      </Table.Td>
-                      <Table.Td ta="right">
-                        <Group gap="xs" justify="flex-end">
-                          <ActionIcon
-                            variant="subtle"
-                            color="blue"
-                            onClick={() => {
-                              setEditEntryId(entry.id);
-                              openEditModal();
-                            }}
-                            aria-label="Eintrag bearbeiten"
-                          >
-                            <IconPencil size={16} />
-                          </ActionIcon>
-                          <ActionIcon
-                            variant="subtle"
-                            color="red"
-                            onClick={() => setDeleteTarget(entry)}
-                            aria-label="Eintrag löschen"
-                          >
-                            <IconTrash size={16} />
-                          </ActionIcon>
+                    <Paper key={entry.id} withBorder radius="md" p="md" shadow="xs">
+                      <Stack gap="sm">
+                        <Group justify="space-between" align="flex-start">
+                          <Stack gap={2}>
+                            <Text fw={600}>{mod?.name ?? "Unbekanntes Projekt"}</Text>
+                            <Text size="sm" c="dimmed">
+                              {folderPath}
+                            </Text>
+                          </Stack>
+                          <Text size="sm" fw={600}>
+                            {entry.durationHours.toFixed(2)} h
+                          </Text>
                         </Group>
+                        <Group justify="space-between" wrap="wrap" gap="sm">
+                          <Text size="sm">{entry.activityType}</Text>
+                          <Text size="sm" c="dimmed">
+                            {dayjs(entry.timestamp).format("DD.MM.YYYY")}
+                          </Text>
+                        </Group>
+                        {entry.description ? (
+                          <Text size="sm" c="dimmed">
+                            {entry.description}
+                          </Text>
+                        ) : null}
+                      </Stack>
+                    </Paper>
+                  );
+                })
+              )}
+            </Stack>
+          ) : (
+            <ScrollArea>
+              <Table striped highlightOnHover withTableBorder withColumnBorders miw={800}>
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>Datum</Table.Th>
+                    <Table.Th>Ordner</Table.Th>
+                    <Table.Th>Modul</Table.Th>
+                    <Table.Th>Tätigkeit</Table.Th>
+                    <Table.Th>Beschreibung</Table.Th>
+                    <Table.Th ta="right">Dauer (h)</Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {filteredEntries.map((entry) => {
+                    const mod = moduleLookup.get(entry.moduleId) ?? getModuleById(entry.moduleId);
+                    const folderPath = mod ? resolveFolderPath(mod.folderId, flattenedFolders) : "-";
+                    return (
+                      <Table.Tr key={entry.id}>
+                        <Table.Td>{dayjs(entry.timestamp).format("DD.MM.YYYY")}</Table.Td>
+                        <Table.Td>{folderPath}</Table.Td>
+                        <Table.Td>
+                          <Text fw={600}>{mod?.name ?? "Unbekannt"}</Text>
+                        </Table.Td>
+                        <Table.Td>{entry.activityType}</Table.Td>
+                        <Table.Td>
+                          <Text size="sm" c="dimmed">
+                            {entry.description ?? "-"}
+                          </Text>
+                        </Table.Td>
+                        <Table.Td ta="right" fw={600}>
+                          {entry.durationHours.toFixed(2)}
+                        </Table.Td>
+                      </Table.Tr>
+                    );
+                  })}
+                  {filteredEntries.length === 0 ? (
+                    <Table.Tr>
+                      <Table.Td colSpan={6}>
+                        <Stack align="center" py="xl" gap="xs">
+                          <IconRefresh size={28} stroke={1.5} />
+                          <Text c="dimmed">Keine Einträge in diesem Filter gefunden.</Text>
+                        </Stack>
                       </Table.Td>
                     </Table.Tr>
-                  );
-                })}
-                {filteredEntries.length === 0 ? (
-                  <Table.Tr>
-                    <Table.Td colSpan={7}>
-                      <Stack align="center" py="xl" gap="xs">
-                        <IconRefresh size={28} stroke={1.5} />
-                        <Text c="dimmed">Keine Einträge in diesem Filter gefunden.</Text>
-                      </Stack>
-                    </Table.Td>
-                  </Table.Tr>
-                ) : null}
-              </Table.Tbody>
-            </Table>
-          </ScrollArea>
+                  ) : null}
+                </Table.Tbody>
+              </Table>
+            </ScrollArea>
+          )}
         </Paper>
       </Stack>
 
-      <Modal opened={createModalOpened} onClose={closeCreateModal} title="Neue Lernzeit erfassen" size="lg" radius="lg">
-        <EntryForm onSuccess={closeCreateModal} />
-      </Modal>
-
-      <Modal
-        opened={editModalOpened && entryToEdit !== null}
-        onClose={() => {
-          closeEditModal();
-          setEditEntryId(null);
-        }}
-        title="Eintrag bearbeiten"
-        size="lg"
-        radius="lg"
-      >
-        {entryToEdit ? (
-          <EntryForm
-            entry={entryToEdit}
-            onSuccess={() => {
-              closeEditModal();
-              setEditEntryId(null);
-            }}
-          />
-        ) : null}
-      </Modal>
-
-      <Modal opened={deleteTarget !== null} onClose={closeDeleteModal} title="Eintrag löschen" radius="lg">
-        <Stack gap="md">
-          <Text fw={500}>Möchtest du diesen Eintrag wirklich löschen?</Text>
-          <Group justify="flex-end">
-            <Button variant="subtle" onClick={closeDeleteModal} disabled={deleteLoading}>
-              Abbrechen
-            </Button>
-            <Button color="red" loading={deleteLoading} onClick={handleConfirmDelete}>
-              Löschen
-            </Button>
-          </Group>
-        </Stack>
+      <Modal opened={modalOpened} onClose={closeModal} title="Neue Lernzeit erfassen" size="lg" radius="lg">
+        <EntryForm onSuccess={closeModal} />
       </Modal>
     </>
   );
@@ -337,4 +383,32 @@ export default function EntriesPageContent() {
 function resolveFolderPath(folderId: string, folders: { id: string; path: string }[]) {
   const folder = folders.find((item) => item.id === folderId);
   return folder ? folder.path : "-";
+}
+
+function parseDateParam(value: string | null): Date | null {
+  if (!value) {
+    return null;
+  }
+  const strict = dayjs(value, "YYYY-MM-DD", true);
+  const parsed = strict.isValid() ? strict : dayjs(value);
+  return parsed.isValid() ? parsed.toDate() : null;
+}
+
+function formatDateParam(value: Date | null): string | null {
+  if (!value) {
+    return null;
+  }
+  return dayjs(value).format("YYYY-MM-DD");
+}
+
+function areDateRangesEqual(a: [Date | null, Date | null], b: [Date | null, Date | null]) {
+  const [aStart, aEnd] = a;
+  const [bStart, bEnd] = b;
+  const sameStart =
+    (aStart === null && bStart === null) ||
+    (aStart !== null && bStart !== null && dayjs(aStart).isSame(bStart, "day"));
+  const sameEnd =
+    (aEnd === null && bEnd === null) ||
+    (aEnd !== null && bEnd !== null && dayjs(aEnd).isSame(bEnd, "day"));
+  return sameStart && sameEnd;
 }

@@ -125,6 +125,7 @@ export function MainAppShell({ children }: PropsWithChildren) {
             id: folder.id,
             name: folder.name,
             hours: folder.totalHours,
+            href: `/entries?folder=${folder.id}`,
           }))}
           onSignOut={() =>
             signOut().catch((error) => {
@@ -152,7 +153,7 @@ function AffixNav({
   onSignOut,
 }: {
   pathname: string;
-  folderTreeInitials: { id: string; name: string; hours: number }[];
+  folderTreeInitials: { id: string; name: string; hours: number; href: string }[];
   onSignOut: () => void;
 }) {
   return (
@@ -188,12 +189,12 @@ function AffixNav({
             >
               <ActionIcon
                 component={Link}
-                href={`/analytics?folder=${folder.id}`}
+                href={folder.href}
                 variant="light"
                 color="gray"
                 size={36}
                 radius="xl"
-                aria-label={folder.name}
+                aria-label={`Zeiterfassung ${folder.name}`}
               >
                 <Text size="sm" fw={600}>
                   {folder.name.charAt(0).toUpperCase()}
