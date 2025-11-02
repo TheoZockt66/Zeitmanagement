@@ -19,12 +19,14 @@ import {
 } from "@mantine/core";
 import { DatePickerInput } from "@mantine/dates";
 import { useDisclosure, useMediaQuery } from "@mantine/hooks";
-import { IconFilterOff, IconPlus, IconRefresh } from "@tabler/icons-react";
+import { IconFilterOff, IconPlus, IconRefresh, IconPencil, IconTrash } from "@tabler/icons-react";
 import dayjs from "dayjs";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { notifications } from "@mantine/notifications";
 import { useTimeTracking } from "../../hooks/useTimeTracking";
 import { EntryForm } from "./EntryForm";
+import type { TimeEntry } from "../../types/time";
 
 export default function EntriesPageContent() {
   const {
@@ -37,6 +39,8 @@ export default function EntriesPageContent() {
     initialized,
     error,
     refresh,
+    deleteEntry,
+    isMutating,
   } = useTimeTracking();
   const isMobile = useMediaQuery("(max-width: 48em)");
   const router = useRouter();
@@ -50,6 +54,9 @@ export default function EntriesPageContent() {
     parseDateParam(searchParams.get("to")),
   ]);
   const [modalOpened, { open: openModal, close: closeModal }] = useDisclosure(false);
+  const [editingEntry, setEditingEntry] = useState<TimeEntry | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<TimeEntry | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   const moduleLookup = useMemo(
     () => new Map(modulesWithRelations.map((mod) => [mod.id, mod])),
@@ -177,6 +184,60 @@ export default function EntriesPageContent() {
     updateQuery({ folder: null, module: null, dateRange: [null, null] });
   }, [updateQuery]);
 
+  const handleOpenCreateModal = () => {
+    setEditingEntry(null);
+    openModal();
+  };
+
+  const handleOpenEditModal = (entry: TimeEntry) => {
+    setEditingEntry(entry);
+    openModal();
+  };
+
+  const handleCloseModal = () => {
+    closeModal();
+    setEditingEntry(null);
+  };
+
+  const handleEntrySuccess = () => {
+    handleCloseModal();
+  };
+
+  const handleRequestDelete = (entry: TimeEntry) => {
+    setDeleteTarget(entry);
+  };
+
+  const handleCancelDelete = () => {
+    setDeleteTarget(null);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) {
+      return;
+    }
+    setDeleteLoading(true);
+    try {
+      await deleteEntry(deleteTarget.id);
+      notifications.show({
+        title: "Eintrag entfernt",
+        message: "Der Eintrag wurde geloescht.",
+        color: "green",
+      });
+      setDeleteTarget(null);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Eintrag konnte nicht geloescht werden.";
+      notifications.show({
+        title: "Loeschen fehlgeschlagen",
+        message,
+        color: "red",
+      });
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
+
+  const actionDisabled = stateLoading || isMutating || deleteLoading;
+
   const initialLoading = stateLoading && !initialized;
 
   if (initialLoading) {
@@ -220,7 +281,7 @@ export default function EntriesPageContent() {
           <Button
             leftSection={<IconPlus size={18} />}
             size="md"
-            onClick={openModal}
+            onClick={handleOpenCreateModal}
             disabled={stateLoading}
             fullWidth={isMobile}
           >
@@ -299,9 +360,29 @@ export default function EntriesPageContent() {
                               {folderPath}
                             </Text>
                           </Stack>
-                          <Text size="sm" fw={600}>
-                            {entry.durationHours.toFixed(2)} h
-                          </Text>
+                          <Group gap="xs" align="center">
+                            <Text size="sm" fw={600}>
+                              {entry.durationHours.toFixed(2)} h
+                            </Text>
+                            <ActionIcon
+                              variant="light"
+                              color="gray"
+                              onClick={() => handleOpenEditModal(entry)}
+                              aria-label="Eintrag bearbeiten"
+                              disabled={actionDisabled}
+                            >
+                              <IconPencil size={16} />
+                            </ActionIcon>
+                            <ActionIcon
+                              variant="light"
+                              color="red"
+                              onClick={() => handleRequestDelete(entry)}
+                              aria-label="Eintrag loeschen"
+                              disabled={actionDisabled}
+                            >
+                              <IconTrash size={16} />
+                            </ActionIcon>
+                          </Group>
                         </Group>
                         <Group justify="space-between" wrap="wrap" gap="sm">
                           <Text size="sm">{entry.activityType}</Text>
@@ -331,6 +412,7 @@ export default function EntriesPageContent() {
                     <Table.Th>Tätigkeit</Table.Th>
                     <Table.Th>Beschreibung</Table.Th>
                     <Table.Th ta="right">Dauer (h)</Table.Th>
+                    <Table.Th ta="right">Aktionen</Table.Th>
                   </Table.Tr>
                 </Table.Thead>
                 <Table.Tbody>
@@ -353,12 +435,34 @@ export default function EntriesPageContent() {
                         <Table.Td ta="right" fw={600}>
                           {entry.durationHours.toFixed(2)}
                         </Table.Td>
+                        <Table.Td>
+                          <Group gap="xs" justify="flex-end">
+                            <ActionIcon
+                              variant="light"
+                              color="gray"
+                              onClick={() => handleOpenEditModal(entry)}
+                              aria-label="Eintrag bearbeiten"
+                              disabled={actionDisabled}
+                            >
+                              <IconPencil size={16} />
+                            </ActionIcon>
+                            <ActionIcon
+                              variant="light"
+                              color="red"
+                              onClick={() => handleRequestDelete(entry)}
+                              aria-label="Eintrag loeschen"
+                              disabled={actionDisabled}
+                            >
+                              <IconTrash size={16} />
+                            </ActionIcon>
+                          </Group>
+                        </Table.Td>
                       </Table.Tr>
                     );
                   })}
                   {filteredEntries.length === 0 ? (
                     <Table.Tr>
-                      <Table.Td colSpan={6}>
+                      <Table.Td colSpan={7}>
                         <Stack align="center" py="xl" gap="xs">
                           <IconRefresh size={28} stroke={1.5} />
                           <Text c="dimmed">Keine Einträge in diesem Filter gefunden.</Text>
@@ -373,8 +477,34 @@ export default function EntriesPageContent() {
         </Paper>
       </Stack>
 
-      <Modal opened={modalOpened} onClose={closeModal} title="Neue Lernzeit erfassen" size="lg" radius="lg">
-        <EntryForm onSuccess={closeModal} />
+      <Modal
+        opened={modalOpened}
+        onClose={handleCloseModal}
+        title={editingEntry ? "Eintrag bearbeiten" : "Neue Lernzeit erfassen"}
+        size="lg"
+        radius="lg"
+      >
+        <EntryForm key={editingEntry?.id ?? "new"} onSuccess={handleEntrySuccess} entry={editingEntry ?? undefined} />
+      </Modal>
+
+      <Modal opened={Boolean(deleteTarget)} onClose={handleCancelDelete} title="Eintrag loeschen" radius="lg" size="sm">
+        <Stack gap="md">
+          <Text>
+            Moechtest du den Eintrag{" "}
+            <Text component="span" fw={600}>
+              {deleteTarget?.activityType ?? ""}
+            </Text>{" "}
+            vom {deleteTarget ? dayjs(deleteTarget.timestamp).format("DD.MM.YYYY") : ""} wirklich loeschen?
+          </Text>
+          <Group justify="flex-end">
+            <Button variant="default" onClick={handleCancelDelete} disabled={deleteLoading}>
+              Abbrechen
+            </Button>
+            <Button color="red" onClick={handleConfirmDelete} loading={deleteLoading}>
+              Loeschen
+            </Button>
+          </Group>
+        </Stack>
       </Modal>
     </>
   );
@@ -412,3 +542,4 @@ function areDateRangesEqual(a: [Date | null, Date | null], b: [Date | null, Date
     (aEnd !== null && bEnd !== null && dayjs(aEnd).isSame(bEnd, "day"));
   return sameStart && sameEnd;
 }
+

@@ -15,9 +15,23 @@ export const metadata: Metadata = {
   },
   keywords: ["Zeitmanagement", "Zeiterfassung", "Studium"],
   icons: {
-    icon: "/hourglass-high.svg",
-    shortcut: "/hourglass-high.svg",
-    apple: "/hourglass-high.svg",
+    icon: [
+      {
+        url: "/sandglass.svg",
+        type: "image/svg+xml",
+      },
+    ],
+    shortcut: [
+      {
+        url: "/sandglass.svg",
+        type: "image/svg+xml",
+      },
+    ],
+    apple: [
+      {
+        url: "/sandglass.svg",
+      },
+    ],
   },
 };
 
