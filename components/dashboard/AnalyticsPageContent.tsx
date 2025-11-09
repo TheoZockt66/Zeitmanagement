@@ -11,6 +11,7 @@ import {
   Grid,
   Group,
   Loader,
+  Modal,
   Paper,
   Progress,
   RingProgress,
@@ -96,6 +97,8 @@ export default function AnalyticsPageContent() {
 
   const initialFolderFilter = (searchParams.get("folder") ?? "all") as "all" | string;
   const [activeFolderId, setActiveFolderId] = useState<"all" | string>(initialFolderFilter);
+  const [monthlyModalOpen, setMonthlyModalOpen] = useState(false);
+  const [selectedMonth, setSelectedMonth] = useState(() => dayjs().format("YYYY-MM"));
   const initialLoading = stateLoading && !initialized;
 
   useEffect(() => {
@@ -257,6 +260,66 @@ export default function AnalyticsPageContent() {
         }))
       : [{ value: 100, color: "gray.4" }];
 
+  const monthBuckets = useMemo(() => {
+    const entries = filteredModules.flatMap((module) => module.entries);
+    return entries.reduce<Map<string, Map<string, number>>>((acc, entry) => {
+      const entryDate = dayjs(entry.timestamp);
+      const monthKey = entryDate.format("YYYY-MM");
+      const dayKey = entryDate.format("YYYY-MM-DD");
+      if (!acc.has(monthKey)) {
+        acc.set(monthKey, new Map());
+      }
+      const monthMap = acc.get(monthKey)!;
+      monthMap.set(dayKey, (monthMap.get(dayKey) ?? 0) + entry.durationHours);
+      return acc;
+    }, new Map());
+  }, [filteredModules]);
+
+  const monthlyOptions = useMemo(() => {
+    const currentMonthKey = dayjs().format("YYYY-MM");
+    const monthKeys = new Set<string>([currentMonthKey]);
+    monthBuckets.forEach((_value, key) => monthKeys.add(key));
+    const sortedKeys = Array.from(monthKeys).sort((a, b) => b.localeCompare(a));
+    return sortedKeys.map((value) => {
+      const labelDate = dayjs(`${value}-01`);
+      return {
+        value,
+        label: labelDate.isValid() ? labelDate.format("MMMM YYYY") : value,
+      };
+    });
+  }, [monthBuckets]);
+
+  useEffect(() => {
+    if (monthlyOptions.length === 0) {
+      return;
+    }
+    if (!selectedMonth || !monthlyOptions.some((option) => option.value === selectedMonth)) {
+      setSelectedMonth(monthlyOptions[0].value);
+    }
+  }, [monthlyOptions, selectedMonth]);
+
+  const monthlyHeatmapValues = useMemo(() => {
+    if (!selectedMonth) {
+      return [];
+    }
+    const startOfMonth = dayjs(`${selectedMonth}-01`);
+    if (!startOfMonth.isValid()) {
+      return [];
+    }
+    const daysInMonth = startOfMonth.daysInMonth();
+    const selectedMonthMap = monthBuckets.get(selectedMonth) ?? new Map();
+    return Array.from({ length: daysInMonth }, (_, index) => {
+      const date = startOfMonth.date(index + 1);
+      const dayKey = date.format("YYYY-MM-DD");
+      return { date: dayKey, hours: selectedMonthMap.get(dayKey) ?? 0 };
+    });
+  }, [monthBuckets, selectedMonth]);
+
+  const monthlyTotalHours = useMemo(
+    () => monthlyHeatmapValues.reduce((sum, { hours }) => sum + hours, 0),
+    [monthlyHeatmapValues],
+  );
+
   const hoursByDay = useMemo(() => {
     const today = dayjs();
     return Array.from({ length: DAYS_TO_RENDER }, (_, index) => {
@@ -292,13 +355,14 @@ export default function AnalyticsPageContent() {
   }
 
   return (
-    <Stack gap="xl">
-      <Stack gap={4}>
-        <Title order={2}>Auswertungen</Title>
-        <Text c="dimmed">
-          Analysiere deine Lernzeiten nach Ordnern und Projekten.
-        </Text>
-      </Stack>
+    <>
+      <Stack gap="xl">
+        <Stack gap={4}>
+          <Title order={2}>Auswertungen</Title>
+          <Text c="dimmed">
+            Analysiere deine Lernzeiten nach Ordnern und Projekten.
+          </Text>
+        </Stack>
 
       <Card padding="md" radius="md">
         <Stack gap="md">
@@ -491,29 +555,39 @@ export default function AnalyticsPageContent() {
 
       <Paper radius="md" p="xl">
         <Stack gap="lg">
-        {error ? (
-          <Alert color="red" variant="light" title="Synchronisationsfehler" withCloseButton={false}>
-            <Group justify="space-between" align="center">
-              <Text fw={500}>{error}</Text>
-              <Button
-                size="xs"
-                variant="outline"
-                onClick={() => {
-                  refresh({ withSpinner: true }).catch((err) => {
-                    console.error("[Zeitmanagement] Dashboard-Refresh fehlgeschlagen", err);
-                  });
-                }}
-                loading={stateLoading}
-              >
-                Erneut laden
-              </Button>
-            </Group>
-          </Alert>
-        ) : null}
+          {error ? (
+            <Alert color="red" variant="light" title="Synchronisationsfehler" withCloseButton={false}>
+              <Group justify="space-between" align="center">
+                <Text fw={500}>{error}</Text>
+                <Button
+                  size="xs"
+                  variant="outline"
+                  onClick={() => {
+                    refresh({ withSpinner: true }).catch((err) => {
+                      console.error("[Zeitmanagement] Dashboard-Refresh fehlgeschlagen", err);
+                    });
+                  }}
+                  loading={stateLoading}
+                >
+                  Erneut laden
+                </Button>
+              </Group>
+            </Alert>
+          ) : null}
 
-          <Group gap="sm">
-            <IconClockHour9 size={22} />
-            <Title order={4}>Aktivitäten der letzten {DAYS_TO_RENDER} Tage</Title>
+          <Group justify="space-between" align="center">
+            <Group gap="sm">
+              <IconClockHour9 size={22} />
+              <Title order={4}>Aktivitäten der letzten {DAYS_TO_RENDER} Tage</Title>
+            </Group>
+            <Button
+              size="xs"
+              variant="light"
+              onClick={() => setMonthlyModalOpen(true)}
+              disabled={monthlyOptions.length === 0}
+            >
+              Monatsverteilung
+            </Button>
           </Group>
           <ActivityHeatmap values={hoursByDay} />
         </Stack>
@@ -593,13 +667,38 @@ export default function AnalyticsPageContent() {
         </Stack>
       </Paper>
     </Stack>
+
+    <Modal
+      opened={monthlyModalOpen}
+      onClose={() => setMonthlyModalOpen(false)}
+      title="Monatsverteilung der Aktivitäten"
+      size="lg"
+    >
+      {monthlyOptions.length === 0 ? (
+        <Text c="dimmed">Noch keine Zeiteinträge vorhanden.</Text>
+      ) : (
+        <Stack gap="md">
+          <Select
+            label="Monat"
+            data={monthlyOptions}
+            value={selectedMonth}
+            onChange={(value) => {
+              if (value) {
+                setSelectedMonth(value);
+              }
+            }}
+            allowDeselect={false}
+          />
+          <Group justify="space-between" align="flex-end">
+            <Text size="sm" c="dimmed">
+              Gesamtstunden in diesem Monat
+            </Text>
+            <Text fw={600}>{monthlyTotalHours.toFixed(1)} h</Text>
+          </Group>
+          <ActivityHeatmap values={monthlyHeatmapValues} />
+        </Stack>
+      )}
+    </Modal>
+    </>
   );
 }
-
-
-
-
-
-
-
-
